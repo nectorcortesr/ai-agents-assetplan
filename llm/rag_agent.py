@@ -39,23 +39,23 @@ class RAGAgent:
     def _get_latest_json_file(self):
         json_files = glob("data/assetplan_properties_*.json")
         if not json_files:
-            raise FileNotFoundError("❌ No se encontró ningún archivo JSON en la carpeta 'data/'")
+            raise FileNotFoundError("No se encontró ningún archivo JSON en la carpeta 'data/'")
         def extract_dt(f):
             m = re.search(r'(\d{8}_\d{6})', f)
             return datetime.strptime(m.group(1), "%Y%m%d_%H%M%S") if m else datetime.min
         latest = max(json_files, key=extract_dt)
-        logger.info(f"📂 Usando el archivo más reciente: {latest}")
+        logger.info(f"Usando el archivo más reciente: {latest}")
         return latest
 
     def _load_json_properties(self):
         if not os.path.exists(self.json_file):
-            logger.error(f"❌ JSON no encontrado: {self.json_file}")
+            logger.error(f"JSON no encontrado: {self.json_file}")
             return
         with open(self.json_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
         # new JSON is a list of listings
         self.properties = data
-        logger.info(f"📑 {len(self.properties)} propiedades cargadas desde {self.json_file}")
+        logger.info(f"{len(self.properties)} propiedades cargadas desde {self.json_file}")
 
     def _create_document(self, prop: Dict[str, Any]) -> str:
         # Summarize main fields
@@ -90,7 +90,7 @@ class RAGAgent:
         if docs:
             embeddings = self.embedder.encode(docs).tolist()
             self.vector_store.add_documents(docs, embeddings, metas, ids)
-            logger.info(f"✅ {len(docs)} propiedades indexadas")
+            logger.info(f"{len(docs)} propiedades indexadas")
 
     def search_and_generate(self, query: str, n: int = 5) -> str:
         query_emb = self.embedder.encode(query).tolist()
@@ -110,7 +110,7 @@ class RAGAgent:
     def cli(self, args):
         if self.vector_store.count() == 0 or args.load:
             self.load_properties()
-            print("📊 Indexación completada.")
+            print("Indexación completada.")
         query = args.query or input("🔍 Ingresa tu consulta: ")
         print(self.search_and_generate(query, n=args.n))
 

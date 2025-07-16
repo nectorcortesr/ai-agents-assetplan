@@ -15,4 +15,7 @@ dependencies = [
   "python-dotenv",
   "langchain",
   "langchain-community",
+  "fastapi",
+  "uvicorn",
+  "pytest",
 ]
