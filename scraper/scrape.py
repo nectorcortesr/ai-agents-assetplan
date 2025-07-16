@@ -1,13 +1,12 @@
 import json
 import time
-import random
 import logging
 import argparse
 
 from uuid import uuid5, NAMESPACE_URL
-from typing import List
+from typing import List, Dict
 from pydantic import BaseModel
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Browser
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -17,174 +16,124 @@ logger = logging.getLogger(__name__)
 class PropertyListing(BaseModel):
     id: str
     title: str
-    price: str
     location: str
     url: str
-    property_type: str
-    bedrooms: str
-    available: str
-    features: dict = {}
-    images: List[str] = []
+    images: List[str]
+    typologies: List[Dict]
     timestamp: str = time.strftime("%Y-%m-%d %H:%M:%S")
 
 # --- Utilities ---
-def get_text(element, selector):
+def get_text(element, selector: str) -> str:
     el = element.query_selector(selector)
     return el.inner_text().strip() if el else ""
 
-def get_attr(element, selector, attr):
+def get_attr(element, selector: str, attr: str) -> str:
     el = element.query_selector(selector)
-    return el.get_attribute(attr) if el else ""
+    return el.get_attribute(attr) or "" if el else ""
 
-def process_property_types(property_types):
-    bedrooms, available = [], []
-    for prop in property_types:
-        if "|" in prop:
-            bed_count, avail = prop.split("|", 1)
-            bedrooms.append(bed_count.strip())
-            available.append(avail.strip())
-        else:
-            bedrooms.append(prop.strip())
-            available.append("")
-    return bedrooms, available
+# --- Detail Extraction ---
+def extract_building_detail(browser: Browser, url: str) -> Dict:
+    page = browser.new_page()
+    # retry on connection issues
+    for attempt in range(2):
+        try:
+            page.goto(url, timeout=45000, wait_until="domcontentloaded")
+            break
+        except Exception as e:
+            logger.warning(f"Detail load failed (attempt {attempt+1}): {e}")
+    # Title and location
+    title = get_text(page, 'a.block.overflow-hidden.text-lg.font-bold') or get_text(page, 'nav.breadcrumbs li:last-child a')
+    location = get_text(page, 'span.text-neutral-500')
+
+    # Images
+    images = [img.get_attribute('src') for img in page.query_selector_all('img.gallery__img') if img.get_attribute('src')]
+
+    # Typologies
+    typologies = []
+    # select correct block pattern
+    blocks = page.query_selector_all('div.flex.w-full.lg\\:w-\\[174px\\] + div.flex.flex-col')
+    for block in blocks:
+        cells = block.query_selector_all('div.inline-flex.items-center')
+        bd = " ".join(p.inner_text().strip() for p in cells[0].query_selector_all('p')) if len(cells) > 0 else ""
+        ba = " ".join(p.inner_text().strip() for p in cells[1].query_selector_all('p')) if len(cells) > 1 else ""
+        size_range = get_text(block, 'p:has-text("m² útiles")')
+        price_range = get_text(block, 'div.mt-2 p.text-lg.font-semibold')
+        available = get_text(block, 'a:has-text("Ver")').replace('Ver', '').replace('disponibles', '').strip()
+        promos = [span.inner_text().strip() for span in block.query_selector_all('div.badge_promos span')]
+        typologies.append({
+            'bedrooms': bd,
+            'bathrooms': ba,
+            'size_range': size_range,
+            'price_range': price_range,
+            'available': available,
+            'promotions': promos
+        })
+    page.close()
+    return { 'title': title, 'location': location, 'images': images, 'typologies': typologies }
 
 # --- Scraper Logic ---
-def extract_property_data(card):
-    try:
-        title = get_text(card, 'a.text-neutral-800.text-lg') or "Sin título"
-        location = get_text(card, 'span.text-neutral-500.text-sm') or "Ubicación desconocida"
-        price = get_text(card, 'p.text-neutral-800.text-lg') or "Precio no disponible"
-        url = get_attr(card, 'a.text-neutral-800.text-lg', 'href') or "#"
-        if url and not url.startswith('http'):
-            url = f"https://www.assetplan.cl{url}"
-
-        property_types = [el.inner_text().strip() for el in card.query_selector_all('a.text-neutral-800.bg-white.border')]
-        property_types = [p for p in property_types if "Dormitorio" in p or "Estudio" in p]
-        bedrooms, available = process_property_types(property_types)
-
-        images = [img.get_attribute('src') for img in card.query_selector_all('img.rounded-t-md') 
-                if img.get_attribute('src') and not img.get_attribute('src').startswith('data:')]
-
-        promotions = [el.inner_text().strip() for el in card.query_selector_all('div.badge_promos span')]
-
-        return PropertyListing(
-            id=str(uuid5(NAMESPACE_URL, title + location + url)),
-            title=title,
-            price=price,
-            location=location,
-            url=url,
-            property_type=", ".join(bedrooms),
-            bedrooms=", ".join(bedrooms),
-            available=", ".join(available),
-            features={"promotions": promotions},
-            images=images
-        )
-    except Exception as e:
-        logger.error(f"Error extrayendo datos: {e}")
-        return None
-
-def scrape_assetplan_enhanced(min_properties=50, max_pages=50):
-    properties = []
+def scrape_assetplan(min_props: int = 50, max_pages: int = 50) -> List[PropertyListing]:
+    results: List[PropertyListing] = []
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
-        context = browser.new_context(viewport={"width": 1920, "height": 1080},
-                                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-        page = context.new_page()
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        # block heavy resources for speed
+        page.route("**/*", lambda route, req: route.abort() if req.resource_type in ["stylesheet","font"] else route.continue_())
+
         page_num = 1
-        consecutive_empty_pages = 0
-
-        while len(properties) < min_properties and page_num <= max_pages:
-            logger.info(f"\nNavegando a página {page_num}...")
-            url = f"https://www.assetplan.cl/arriendo/departamento?page={page_num}"
-            try:
-                page.goto(url, timeout=60000)
-                page.wait_for_selector('div.bg-white.rounded-b-md', timeout=30000)
-                for i in range(5):
-                    page.evaluate(f"window.scrollTo(0, {i * 500})")
-                    time.sleep(0.5)
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                time.sleep(2)
-            except Exception as e:
-                logger.error(f"Error cargando página {page_num}: {e}")
-                consecutive_empty_pages += 1
-                if consecutive_empty_pages >= 3:
-                    logger.warning("Demasiadas páginas consecutivas con errores, deteniendo...")
+        while len(results) < min_props and page_num <= max_pages:
+            list_url = f"https://www.assetplan.cl/arriendo/departamento?page={page_num}"
+            logger.info(f"Loading list page {page_num}")
+            # retry on connection errors
+            for attempt in range(2):
+                try:
+                    page.goto(list_url, timeout=30000, wait_until="networkidle")
                     break
-                page_num += 1
-                continue
+                except Exception as e:
+                    logger.warning(f"List page load failed (attempt {attempt+1}): {e}")
+            cards = page.query_selector_all('article.building-card')
+            logger.info(f"Found {len(cards)} cards")
+            for idx, card in enumerate(cards, 1):
+                logger.info(f"Processing card {idx}")
+                card_title = get_text(card, 'a.text-neutral-800.text-lg')
+                card_location = get_text(card, 'span.text-neutral-500.text-sm')
+                href = get_attr(card, 'a.text-neutral-800.text-lg', 'href')
+                detail_url = href if href.startswith('http') else f"https://www.assetplan.cl{href}"
 
-            cards = page.query_selector_all('div.bg-white.rounded-b-md')
-            if not cards:
-                logger.warning(f"No se encontraron propiedades en página {page_num}")
-                consecutive_empty_pages += 1
-                if consecutive_empty_pages >= 3:
+                detail = extract_building_detail(browser, detail_url)
+                listing = PropertyListing(
+                    id=str(uuid5(NAMESPACE_URL, detail_url)),
+                    title=detail['title'] or card_title,
+                    location=detail['location'] or card_location,
+                    url=detail_url,
+                    images=detail['images'],
+                    typologies=detail['typologies']
+                )
+                results.append(listing)
+                logger.info(f"Collected {len(results)} listings")
+                if len(results) >= min_props:
                     break
-                page_num += 1
-                continue
-
-            logger.info(f"{len(cards)} propiedades encontradas")
-            consecutive_empty_pages = 0
-            page_properties = 0
-
-            for card in cards:
-                property_data = extract_property_data(card)
-                if property_data:
-                    if not any(p['id'] == property_data.id for p in properties):
-                        properties.append(property_data.model_dump())
-                        page_properties += 1
-                        logger.info(f"{len(properties)}. {property_data.title[:40]}... | {property_data.price}")
-                time.sleep(random.uniform(0.1, 0.3))
-
-            logger.info(f"Página {page_num}: {page_properties} nuevas")
-            if len(properties) >= min_properties:
-                break
             page_num += 1
-            time.sleep(random.uniform(2, 4))
-
+        page.close()
         browser.close()
+    return results
 
-    logger.info(f"Extracción finalizada. {len(properties)} propiedades de {page_num - 1} páginas")
-    return properties
-
-def save_properties_with_stats(properties, filename_base="data/assetplan_properties"):
-    if not properties:
-        logger.error("No hay propiedades para guardar")
-        return None
-
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    filename = f"{filename_base}_{timestamp}.json"
-    stats = {
-        "total_properties": len(properties),
-        "extraction_date": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "locations": {},
-        "property_types": {}
-    }
-    for prop in properties:
-        location = prop.get('location', '').split(',')[-1].strip()
-        stats["locations"][location] = stats["locations"].get(location, 0) + 1
-        prop_type = prop.get('property_type', '')
-        stats["property_types"][prop_type] = stats["property_types"].get(prop_type, 0) + 1
-
-    output_data = {
-        "stats": stats,
-        "properties": properties
-    }
-
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(output_data, f, indent=2, ensure_ascii=False)
-
-    logger.info(f"Guardado en {filename}")
+# --- Save to JSON ---
+def save_to_json(listings: List[PropertyListing], filename_base: str = "data/assetplan_properties") -> str:
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    filename = f"{filename_base}_{ts}.json"
+    with open(filename, 'w', encoding='utf-8') as f:
+        json.dump([l.model_dump() for l in listings], f, ensure_ascii=False, indent=2)
+    logger.info(f"Saved {len(listings)} listings to {filename}")
     return filename
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--min", type=int, default=50, help="Propiedades mínimas a extraer")
-    parser.add_argument("--max", type=int, default=50, help="Páginas máximas a recorrer")
+# --- CLI ---
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Assetplan scraper")
+    parser.add_argument('--min', type=int, default=50, help='Minimum properties')
+    parser.add_argument('--max', type=int, default=50, help='Max pages')
     args = parser.parse_args()
 
-    props = scrape_assetplan_enhanced(min_properties=args.min, max_pages=args.max)
-    file = save_properties_with_stats(props)
-
-    if file:
-        print(f"\nArchivo generado: {file}")
-        print("Ahora puedes usar este archivo con el sistema RAG")
+    listings = scrape_assetplan(min_props=args.min, max_pages=args.max)
+    out_file = save_to_json(listings)
+    print(f"Done. File: {out_file}")
