@@ -1,6 +1,10 @@
 import json
 import time
+import random
 import logging
+import argparse
+
+from uuid import uuid5, NAMESPACE_URL
 from typing import List
 from pydantic import BaseModel
 from playwright.sync_api import sync_playwright
