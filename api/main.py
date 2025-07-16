@@ -1,19 +1,21 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from llm.rag_agent import RAGAgent
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="Assetplan Agent API")
-agent = RAGAgent()
-
-class QueryRequest(BaseModel):
-    query: str
-
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     """Carga las propiedades en ChromaDB al iniciar la aplicación si la base de datos está vacía."""
     if agent.vector_store.count() == 0:
         agent.load_properties()
         print("Properties loaded into ChromaDB at startup")
+    yield
+
+app = FastAPI(title="Assetplan Agent API", lifespan=lifespan)
+agent = RAGAgent()
+
+class QueryRequest(BaseModel):
+    query: str
 
 @app.post("/ask")
 async def ask_question(request: QueryRequest):
