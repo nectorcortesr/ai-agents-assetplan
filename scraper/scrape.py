@@ -188,4 +188,3 @@ if __name__ == "__main__":
     if file:
         print(f"\nArchivo generado: {file}")
         print("Ahora puedes usar este archivo con el sistema RAG")
-        print("Comando sugerido: python scripts/rag_chromadb.py --load")

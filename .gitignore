@@ -1,0 +1,58 @@
+# Entorno virtual
+.venv/
+venv/
+env/
+ENV/
+
+# Archivos de Python compilados
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs y bases de datos temporales
+*.log
+*.sqlite
+*.db
+
+# Cachés y archivos temporales
+*.cache/
+*.mypy_cache/
+*.pytest_cache/
+*.ipynb_checkpoints/
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Archivos de Playwright descargados
+.playwright/
+
+# Directorios de dependencias y configuraciones locales
+node_modules/
+.vscode/
+.idea/
+
+# Archivos de configuración de sistema y IDE
+*.env
+.env.*
+
+# Archivos de ChromaDB
+chroma_db/
+
+# Archivos de build o distribución
+build/
+dist/
+*.egg-info/
+
+# Archivos de Docker
+docker-compose.override.yml
+*.dockerignore
+
+# Archivos de Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Otros
+*.bak
+*.swp

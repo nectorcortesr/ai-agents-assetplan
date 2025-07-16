@@ -1,0 +1,13 @@
+[project]
+name = "ai-agents-assetplan"
+version = "0.1.0"
+description = "Proyecto con scrapping y agente de IA"
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+  "pydantic",
+  "playwright",
+  "pandas",
+  "chromadb",
+]
