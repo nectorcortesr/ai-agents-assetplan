@@ -78,3 +78,66 @@ def extract_property_data(card):
     except Exception as e:
         logger.error(f"Error extrayendo datos: {e}")
         return None
+
+def scrape_assetplan_enhanced(min_properties=50, max_pages=50):
+       properties = []
+       with sync_playwright() as p:
+           browser = p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-dev-shm-usage'])
+           context = browser.new_context(viewport={"width": 1920, "height": 1080},
+                                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+           page = context.new_page()
+           page_num = 1
+           consecutive_empty_pages = 0
+
+           while len(properties) < min_properties and page_num <= max_pages:
+               logger.info(f"\nNavegando a página {page_num}...")
+               url = f"https://www.assetplan.cl/arriendo/departamento?page={page_num}"
+               try:
+                   page.goto(url, timeout=60000)
+                   page.wait_for_selector('div.bg-white.rounded-b-md', timeout=30000)
+                   for i in range(5):
+                       page.evaluate(f"window.scrollTo(0, {i * 500})")
+                       time.sleep(0.5)
+                   page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                   time.sleep(2)
+               except Exception as e:
+                   logger.error(f"Error cargando página {page_num}: {e}")
+                   consecutive_empty_pages += 1
+                   if consecutive_empty_pages >= 3:
+                       logger.warning("Demasiadas páginas consecutivas con errores, deteniendo...")
+                       break
+                   page_num += 1
+                   continue
+
+               cards = page.query_selector_all('div.bg-white.rounded-b-md')
+               if not cards:
+                   logger.warning(f"No se encontraron propiedades en página {page_num}")
+                   consecutive_empty_pages += 1
+                   if consecutive_empty_pages >= 3:
+                       break
+                   page_num += 1
+                   continue
+
+               logger.info(f"{len(cards)} propiedades encontradas")
+               consecutive_empty_pages = 0
+               page_properties = 0
+
+               for card in cards:
+                   property_data = extract_property_data(card)
+                   if property_data:
+                       if not any(p['id'] == property_data.id for p in properties):
+                           properties.append(property_data.model_dump())
+                           page_properties += 1
+                           logger.info(f"{len(properties)}. {property_data.title[:40]}... | {property_data.price}")
+                   time.sleep(random.uniform(0.1, 0.3))
+
+               logger.info(f"Página {page_num}: {page_properties} nuevas")
+               if len(properties) >= min_properties:
+                   break
+               page_num += 1
+               time.sleep(random.uniform(2, 4))
+
+           browser.close()
+
+       logger.info(f"Extracción finalizada. {len(properties)} propiedades de {page_num - 1} páginas")
+       return properties
