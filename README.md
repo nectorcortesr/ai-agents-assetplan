@@ -30,19 +30,28 @@ Este proyecto implementa un **Agente Conversacional** inteligente para responder
 
 ---
 
+```bash
 assetplan-agent/
-├── api/ # API REST con FastAPI
-├── scraper/ # Web scraper con Playwright
-├── vectorStorage/ # Módulo de almacenamiento ChromaDB
-├── llm/ # Lógica de embeddings, recuperación y generación
-├── tests/ # Pruebas automáticas
-├── data/ # Archivos JSON generados por el scraper
-├── Dockerfile # Imagen para API y scraper
-├── docker-compose.yml # Orquestación de servicios
-├── Makefile # Comandos para desarrollo local
-├── .env # Variables de entorno
-├── pyproject.toml # Configuración y dependencias del proyecto
-└── README.md # Este archivo
+├── api/                       # # API REST con FastAPI
+│   └── main.py
+├── llm/                       # Lógica de embeddings, recuperación y generación
+│   └── rag_agent.py
+├── scraper/                   # Lógica del scraper
+│   └── scrape.py
+├── vectorStorage/             # Módulo de almacenamiento vectorial (ChromaDB)
+│   └── chromadb.py
+├── tests/                     # Pruebas automáticas
+│   ├── test_api.py
+│   ├── test_rag.py
+│   └── test_scraper.py
+├── data/                      # Archivos JSON generados por el scraper
+├── Dockerfile                 # Imagen Docker para la API y Streamlit
+├── docker-compose.yml         # Orquestación de servicios con Docker Compose
+├── Makefile                   # Comandos para desarrollo local
+├── .env                       # Variables de entorno
+├── pyproject.toml             # Configuración y dependencias del proyecto
+└── README.md                  # Documentación del proyecto
+```
 
 ---
 
@@ -52,6 +61,16 @@ assetplan-agent/
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
 - [Docker + Docker Compose](https://docs.docker.com/get-docker/)
 - Clave de API de OpenAI (`OPENAI_API_KEY`)
+
+---
+
+## Clonar repositorio
+
+```bash
+# En la terminal de VSCODE ejecuta los siguientes comandos:
+git clone hhttps://github.com/nectorcortesr/ai-agents-assetplan.git
+cd ai-agents-assetplan
+```
 
 ---
 
@@ -69,34 +88,31 @@ Reemplaza sk-xxxxxxxx... con tu clave real obtenida desde https://platform.opena
 
 ## 🛠️ Instalación y Uso
 
-### 🔧 Opción 1: Local con `uv`
+### 🔧 Opción 1: Local con `uv` (con ambiente virtual)
 
 ```bash
-# 1. Clona el repositorio
-git clone hhttps://github.com/nectorcortesr/ai-agents-assetplan.git
-cd ai-agents-assetplan
 
-# 2. Crea y activa el entorno
+# 1. Crea y activa el entorno
 uv venv .venv
 source .venv/bin/activate
 
-# 3. Instala las dependencias
+# 2. Instala las dependencias
 make install
 
-# 4. Ejecuta el scraper (requiere Chromium headless)
+# 3. Ejecuta el scraper (requiere Chromium headless)
 make scrape
 
-# 5. Inicia la API
+# 4. Inicia la API
 make run
 
-# 6. (En otra terminal) Prueba una consulta
+# 5. (En otra terminal) Prueba una consulta
 make apitest
 
-# 7. Limpiar entorno local
+# 6. Limpiar entorno local
 make clean
 ```
 
-### 🔧 Opción 2: Docker
+### 🔧 Opción 2: Docker (Sin ambiente virtual)
 
 ```bash
 # Ejecutar comando para el build (instalación de librerías, dependencias y levantar entorno)
@@ -111,23 +127,25 @@ docker compose up
 
 Una vez que la API esté corriendo (make run o docker compose up), accede desde tu navegador a:
 
-🔗 http://localhost:8000/docs
+- 🔗 http://localhost:8000/docs
 
-    Se abrirá la documentación automática (Swagger UI) de FastAPI.
+- Se abrirá la documentación automática (Swagger UI) de FastAPI.
 
-    Busca el endpoint: POST /ask.
+- Busca el endpoint: POST /ask.
 
-    Haz clic en "Try it out" y completa el campo query con una pregunta. Por ejemplo:
+- Haz clic en "Try it out" y completa el campo query con una pregunta. Por ejemplo:
 
-    {
-        "query": "¿Qué departamentos de 2 dormitorios hay en Providencia por menos de 3000 UF?"
-    }
+```bash
+{
+    "query": "¿Qué departamentos de 2 dormitorios hay en Providencia por menos de 3000 UF?"
+}
+```
 
-    Haz clic en "Execute" y espera la respuesta del agente, que incluirá:
+Haz clic en "Execute" y espera la respuesta del agente, que incluirá:
 
-        Una descripción en lenguaje natural.
+- Una descripción en lenguaje natural.
 
-        Enlaces (URLs) a propiedades relevantes.
+- Enlaces (URLs) a propiedades relevantes.
 
 También puedes consumir el endpoint con herramientas como curl, Postman o Insomnia.
 
@@ -144,14 +162,7 @@ make tests
 
 ## Diagrama 
 
-graph TD
-    A[Scraper (Playwright)] --> B[JSON con propiedades]
-    B --> C[Embeddings (SentenceTransformers)]
-    C --> D[ChromaDB (Vector Store)]
-    E[Usuario] --> F[Pregunta /ask]
-    F --> G[LangChain + GPT-4o]
-    D --> G
-    G --> H[Respuesta con citas y URLs]
+
 
 ---
 
