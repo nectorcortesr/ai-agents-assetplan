@@ -112,32 +112,40 @@ class RAGAgent:
         query_emb = self.embedder.encode(query).tolist()
 
         # 3) Recupera top-n documentos con distancias
-        docs, metas, distances = self.vector_store.query(query_emb, n_results=n)
+        docs, metas, distances, ids = self.vector_store.query(query_emb, n_results=n)
 
-        # 4) Calcular confianza
-        if distances:
-            avg_distance = sum(distances) / len(distances)
-            confidence_score = 1 - (avg_distance / 2)  # Normalizar a [0, 1]
-            if confidence_score > 0.8:
-                confidence = "high"
-            elif confidence_score > 0.5:
-                confidence = "medium"
-            else:
-                confidence = "low"
+        # 4) Verificar que los documentos provengan de ChromaDB
+        if not docs or not ids:
+            logger.warning("No se recuperaron documentos de ChromaDB para la consulta")
+            return {
+                "answer": "No se encontraron propiedades relevantes para la consulta.",
+                "sources": "chromadb",
+                "confidence": "low",
+                "urls": [],
+                "source_ids": []
+            }
+
+        # 5) Calcular confianza
+        avg_distance = sum(distances) / len(distances)
+        confidence_score = 1 - (avg_distance / 2)  # Normalizar a [0, 1]
+        if confidence_score > 0.8:
+            confidence = "high"
+        elif confidence_score > 0.5:
+            confidence = "medium"
         else:
             confidence = "low"
 
-        # 5) Construye el contexto
+        # 6) Construye el contexto
         context = ""
-        sources = []
+        urls = []
         for i, (doc, meta) in enumerate(zip(docs, metas), start=1):
             context += (
                 f"[{i}] {meta.get('title')} - {meta.get('location')}\n"
                 f"{doc}\nURL: {meta.get('url')}\n\n"
             )
-            sources.append(meta.get('url'))
+            urls.append(meta.get('url'))
 
-        # 6) Construye el prompt según el idioma
+        # 7) Construye el prompt según el idioma
         if lang == "en":
             prompt = (
                 "Answer the following question based solely on the properties listed below. "
@@ -153,13 +161,15 @@ class RAGAgent:
                 f"Pregunta: {query}\n\nPropiedades disponibles:\n\n{context}"
             )
 
-        # 7) Llamada al LLM
+        # 8) Llamada al LLM
         llm = OpenAILLM()
         response = llm.invoke(prompt)
 
-        # 8) Devolver respuesta estructurada
+        # 9) Devolver respuesta estructurada
         return {
             "answer": response.content,
-            "sources": sources,
-            "confidence": confidence
+            "sources": "chromadb",
+            "confidence": confidence,
+            "urls": urls,
+            "source_ids": ids
         }

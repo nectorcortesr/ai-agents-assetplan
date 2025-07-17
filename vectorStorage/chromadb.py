@@ -26,7 +26,12 @@ class ChromaDBStore:
             n_results=n_results,
             include=["documents", "metadatas", "distances"]
         )
-        return results["documents"][0], results["metadatas"][0], results["distances"][0]
-        
+        return (
+            results["documents"][0],
+            results["metadatas"][0],
+            results["distances"][0],
+            results["ids"][0]
+        )
+
     def count(self):
         return self.collection.count()
