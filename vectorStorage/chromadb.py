@@ -23,9 +23,10 @@ class ChromaDBStore:
     def query(self, query_embedding, n_results=5):
         results = self.collection.query(
             query_embeddings=[query_embedding],
-            n_results=n_results
+            n_results=n_results,
+            include=["documents", "metadatas", "distances"]
         )
-        return results["documents"][0], results["metadatas"][0]
-
+        return results["documents"][0], results["metadatas"][0], results["distances"][0]
+        
     def count(self):
         return self.collection.count()

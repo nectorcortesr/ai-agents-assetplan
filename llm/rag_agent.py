@@ -7,10 +7,13 @@ from typing import List, Dict, Any
 from glob import glob
 from datetime import datetime
 
-from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 from langchain.chat_models import ChatOpenAI
+from langdetect import detect
+
 from vectorStorage.chromadb import ChromaDBStore
+
+from dotenv import load_dotenv
 
 # Carga las variables de entorno (OPENAI_API_KEY, etc.)
 load_dotenv()
@@ -96,28 +99,67 @@ class RAGAgent:
             self.vector_store.add_documents(docs, embeddings, metas, ids)
             logger.info(f"{len(docs)} propiedades indexadas")
 
-    def search_and_generate(self, query: str, n: int = 5) -> str:
-        """Realiza la búsqueda semántica y genera la respuesta con el LLM."""
-        # 1) Embed la query
+    def search_and_generate(self, query: str, n: int = 5) -> Dict:
+        # 1) Detectar idioma de la consulta
+        try:
+            lang = detect(query)
+        except:
+            lang = "es"  # Fallback a español si la detección falla
+        if lang not in ["es", "en"]:
+            lang = "es"  # Solo soportamos español e inglés
+
+        # 2) Embed la query
         query_emb = self.embedder.encode(query).tolist()
-        # 2) Recupera top-n documentos
-        docs, metas = self.vector_store.query(query_emb, n_results=n)
-        # 3) Construye el contexto
+
+        # 3) Recupera top-n documentos con distancias
+        docs, metas, distances = self.vector_store.query(query_emb, n_results=n)
+
+        # 4) Calcular confianza
+        if distances:
+            avg_distance = sum(distances) / len(distances)
+            confidence_score = 1 - (avg_distance / 2)  # Normalizar a [0, 1]
+            if confidence_score > 0.8:
+                confidence = "high"
+            elif confidence_score > 0.5:
+                confidence = "medium"
+            else:
+                confidence = "low"
+        else:
+            confidence = "low"
+
+        # 5) Construye el contexto
         context = ""
+        sources = []
         for i, (doc, meta) in enumerate(zip(docs, metas), start=1):
             context += (
                 f"[{i}] {meta.get('title')} - {meta.get('location')}\n"
                 f"{doc}\nURL: {meta.get('url')}\n\n"
             )
-        # 4) Construye el prompt
-        prompt = (
-            "Responde a la siguiente pregunta basándote exclusivamente en las propiedades listadas más abajo. "
-            "Si hay al menos 3 propiedades relevantes, incluye al menos 3. Si hay menos, responde solo con las que haya disponibles. "
-            "Por cada propiedad que menciones, incluye el link (URL) original al final del párrafo. "
-            f"Pregunta: {query}\n\nPropiedades disponibles:\n\n{context}"
-        )
+            sources.append(meta.get('url'))
 
-        # 5) Llamada al LLM
+        # 6) Construye el prompt según el idioma
+        if lang == "en":
+            prompt = (
+                "Answer the following question based solely on the properties listed below. "
+                "If there are at least 3 relevant properties, include at least 3. If there are fewer, respond with only those available. "
+                "For each property mentioned, include the original link (URL) at the end of the paragraph. "
+                f"Question: {query}\n\nAvailable properties:\n\n{context}"
+            )
+        else:  # lang == "es"
+            prompt = (
+                "Responde a la siguiente pregunta basándote exclusivamente en las propiedades listadas más abajo. "
+                "Si hay al menos 3 propiedades relevantes, incluye al menos 3. Si hay menos, responde solo con las que haya disponibles. "
+                "Por cada propiedad que menciones, incluye el link (URL) original al final del párrafo. "
+                f"Pregunta: {query}\n\nPropiedades disponibles:\n\n{context}"
+            )
+
+        # 7) Llamada al LLM
         llm = OpenAILLM()
         response = llm.invoke(prompt)
-        return response.content
+
+        # 8) Devolver respuesta estructurada
+        return {
+            "answer": response.content,
+            "sources": sources,
+            "confidence": confidence
+        }

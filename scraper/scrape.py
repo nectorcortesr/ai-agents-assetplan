@@ -1,9 +1,11 @@
 import os
+import re
 import json
 import time
 import logging
 import argparse
-
+from glob import glob
+from datetime import datetime
 from uuid import uuid5, NAMESPACE_URL
 from typing import List, Dict
 from pydantic import BaseModel
@@ -35,23 +37,16 @@ def get_attr(element, selector: str, attr: str) -> str:
 # --- Detail Extraction ---
 def extract_building_detail(browser: Browser, url: str) -> Dict:
     page = browser.new_page()
-    # retry on connection issues
     for attempt in range(2):
         try:
             page.goto(url, timeout=45000, wait_until="domcontentloaded")
             break
         except Exception as e:
             logger.warning(f"Detail load failed (attempt {attempt+1}): {e}")
-    # Title and location
     title = get_text(page, 'a.block.overflow-hidden.text-lg.font-bold') or get_text(page, 'nav.breadcrumbs li:last-child a')
     location = get_text(page, 'span.text-neutral-500')
-
-    # Images
     images = [img.get_attribute('src') for img in page.query_selector_all('img.gallery__img') if img.get_attribute('src')]
-
-    # Typologies
     typologies = []
-    # select correct block pattern
     blocks = page.query_selector_all('div.flex.w-full.lg\\:w-\\[174px\\] + div.flex.flex-col')
     for block in blocks:
         cells = block.query_selector_all('div.inline-flex.items-center')
@@ -70,22 +65,67 @@ def extract_building_detail(browser: Browser, url: str) -> Dict:
             'promotions': promos
         })
     page.close()
-    return { 'title': title, 'location': location, 'images': images, 'typologies': typologies }
+    return {'title': title, 'location': location, 'images': images, 'typologies': typologies}
+
+# --- Incremental Update ---
+def get_latest_json_file(data_dir: str = "data") -> str:
+    json_files = glob(f"{data_dir}/assetplan_properties_*.json")
+    if not json_files:
+        return ""
+    def extract_dt(f: str):
+        m = re.search(r'(\d{8}_\d{6})', f)
+        return datetime.strptime(m.group(1), "%Y%m%d_%H%M%S") if m else datetime.min
+    return max(json_files, key=extract_dt)
+
+def detect_changes(new_listings: List[PropertyListing], old_json: str) -> List[Dict]:
+    if not old_json or not os.path.exists(old_json):
+        logger.info("No previous JSON found, skipping change detection")
+        return []
+    with open(old_json, 'r', encoding='utf-8') as f:
+        old = json.load(f)
+    old_dict = {p['id']: p for p in old}
+    changes = []
+    for new in new_listings:
+        old_p = old_dict.get(new.id)
+        if old_p:
+            for i, new_typ in enumerate(new.typologies):
+                if i < len(old_p['typologies']) and new_typ['price_range'] != old_p['typologies'][i]['price_range']:
+                    changes.append({
+                        'id': new.id,
+                        'title': new.title,
+                        'location': new.location,
+                        'url': new.url,
+                        'typology_index': i,
+                        'old_price': old_p['typologies'][i]['price_range'],
+                        'new_price': new_typ['price_range'],
+                        'timestamp': new.timestamp
+                    })
+    if changes:
+        logger.info(f"Detected {len(changes)} price changes")
+    return changes
+
+def save_changes(changes: List[Dict], filename_base: str = "data/changes") -> str:
+    if not changes:
+        return ""
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    filename = f"{filename_base}_{ts}.json"
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    with open(filename, 'w', encoding='utf-8') as f:
+        json.dump(changes, f, ensure_ascii=False, indent=2)
+    logger.info(f"Saved {len(changes)} changes to {filename}")
+    return filename
 
 # --- Scraper Logic ---
-def scrape_assetplan(min_props: int = 50, max_pages: int = 50) -> List[PropertyListing]:
+def scrape_assetplan(min_props: int = 1, max_pages: int = 1) -> List[PropertyListing]:
     results: List[PropertyListing] = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
-        # block heavy resources for speed
         page.route("**/*", lambda route, req: route.abort() if req.resource_type in ["stylesheet","font"] else route.continue_())
-
         page_num = 1
         while len(results) < min_props and page_num <= max_pages:
             list_url = f"https://www.assetplan.cl/arriendo/departamento?page={page_num}"
             logger.info(f"Loading list page {page_num}")
-            # retry on connection errors
             for attempt in range(2):
                 try:
                     page.goto(list_url, timeout=30000, wait_until="networkidle")
@@ -100,7 +140,6 @@ def scrape_assetplan(min_props: int = 50, max_pages: int = 50) -> List[PropertyL
                 card_location = get_text(card, 'span.text-neutral-500.text-sm')
                 href = get_attr(card, 'a.text-neutral-800.text-lg', 'href')
                 detail_url = href if href.startswith('http') else f"https://www.assetplan.cl{href}"
-
                 detail = extract_building_detail(browser, detail_url)
                 listing = PropertyListing(
                     id=str(uuid5(NAMESPACE_URL, detail_url)),
@@ -123,10 +162,7 @@ def scrape_assetplan(min_props: int = 50, max_pages: int = 50) -> List[PropertyL
 def save_to_json(listings: List[PropertyListing], filename_base: str = "data/assetplan_properties") -> str:
     ts = time.strftime("%Y%m%d_%H%M%S")
     filename = f"{filename_base}_{ts}.json"
-    
-    # Crear directorio si no existe
     os.makedirs(os.path.dirname(filename), exist_ok=True)
-
     with open(filename, 'w', encoding='utf-8') as f:
         json.dump([l.model_dump() for l in listings], f, ensure_ascii=False, indent=2)
     logger.info(f"Saved {len(listings)} listings to {filename}")
@@ -135,10 +171,15 @@ def save_to_json(listings: List[PropertyListing], filename_base: str = "data/ass
 # --- CLI ---
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Assetplan scraper")
-    parser.add_argument('--min', type=int, default=50, help='Minimum properties')
-    parser.add_argument('--max', type=int, default=50, help='Max pages')
+    parser.add_argument('--min', type=int, default=1, help='Minimum properties')
+    parser.add_argument('--max', type=int, default=1, help='Max pages')
     args = parser.parse_args()
-
     listings = scrape_assetplan(min_props=args.min, max_pages=args.max)
+    old_json = get_latest_json_file()
+    changes = detect_changes(listings, old_json)
+    if changes:
+        save_changes(changes)
     out_file = save_to_json(listings)
     print(f"Done. File: {out_file}")
+    if changes:
+        print(f"Changes detected and saved to: data/changes_{time.strftime('%Y%m%d_%H%M%S')}.json")
