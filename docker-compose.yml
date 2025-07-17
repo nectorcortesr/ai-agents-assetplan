@@ -1,0 +1,30 @@
+services:
+  scraper:
+    build: .
+    image: assetplan-agent
+    container_name: assetplan-scraper
+    command: python scraper/scrape.py --min 50 --max 50
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PYTHONPATH=/app
+    restart: on-failure
+
+  api:
+    build: .
+    image: assetplan-agent
+    container_name: assetplan-api
+    ports:
+      - "8000:8000"
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    environment:
+      - PYTHONPATH=/app
+    env_file:
+      - .env
+    depends_on:
+      - scraper
+    restart: unless-stopped
+
+networks:
+  default:
+    driver: bridge

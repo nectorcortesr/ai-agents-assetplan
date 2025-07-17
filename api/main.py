@@ -17,6 +17,10 @@ agent = RAGAgent()
 class QueryRequest(BaseModel):
     query: str
 
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
 @app.post("/ask")
 async def ask_question(request: QueryRequest):
     """Procesa una consulta y devuelve la respuesta generada por el agente."""
