@@ -25,7 +25,7 @@ class PropertyListing(BaseModel):
     typologies: List[Dict]
     timestamp: str = time.strftime("%Y-%m-%d %H:%M:%S")
 
-# --- Utilities ---
+# --- Obtener elementos de la página ---
 def get_text(element, selector: str) -> str:
     el = element.query_selector(selector)
     return el.inner_text().strip() if el else ""
@@ -34,7 +34,7 @@ def get_attr(element, selector: str, attr: str) -> str:
     el = element.query_selector(selector)
     return el.get_attribute(attr) or "" if el else ""
 
-# --- Detail Extraction ---
+# --- Detalles de la extracción ---
 def extract_building_detail(browser: Browser, url: str) -> Dict:
     page = browser.new_page()
     for attempt in range(2):
@@ -67,7 +67,7 @@ def extract_building_detail(browser: Browser, url: str) -> Dict:
     page.close()
     return {'title': title, 'location': location, 'images': images, 'typologies': typologies}
 
-# --- Incremental Update ---
+# --- Actualizacion incremental ---
 def get_latest_json_file(data_dir: str = "data") -> str:
     json_files = glob(f"{data_dir}/assetplan_properties_*.json")
     if not json_files:
@@ -115,7 +115,7 @@ def save_changes(changes: List[Dict], filename_base: str = "data/changes") -> st
     logger.info(f"Saved {len(changes)} changes to {filename}")
     return filename
 
-# --- Scraper Logic ---
+# --- Logica del scraper---
 def scrape_assetplan(min_props: int = 1, max_pages: int = 1) -> List[PropertyListing]:
     results: List[PropertyListing] = []
     with sync_playwright() as p:
@@ -158,7 +158,7 @@ def scrape_assetplan(min_props: int = 1, max_pages: int = 1) -> List[PropertyLis
         browser.close()
     return results
 
-# --- Save to JSON ---
+# --- Guardado en JSON y creacion de carpeta data ---
 def save_to_json(listings: List[PropertyListing], filename_base: str = "data/assetplan_properties") -> str:
     ts = time.strftime("%Y%m%d_%H%M%S")
     filename = f"{filename_base}_{ts}.json"

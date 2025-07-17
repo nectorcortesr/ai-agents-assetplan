@@ -19,19 +19,23 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Assetplan Agent API", lifespan=lifespan)
 agent = RAGAgent()
 
+# Modelo de datos para la consulta POST al endpoint /ask
 class QueryRequest(BaseModel):
     query: str
 
+# Endpoint de prueba para verificar si el servidor está funcionando
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
 
+# Endpoint principal: recibe una pregunta y retorna la respuesta generada por el agente
 @app.post("/ask")
 async def ask_question(request: QueryRequest):
     """Procesa una consulta y devuelve la respuesta generada por el agente."""
     response = agent.search_and_generate(request.query)
     return response
 
+# Endpoint que devuelve los últimos cambios detectados en los precios de propiedades
 @app.get("/changes")
 async def get_changes():
     """Devuelve los cambios detectados en los precios de las propiedades."""

@@ -3,8 +3,8 @@ from api.main import app
 
 client = TestClient(app)
 
+#Prueba que el endpoint /ask responda correctamente a una consulta en español sobre departamentos en Santiago.
 def test_query_response_santiago():
-    """Prueba que el endpoint /ask responda correctamente a una consulta en español sobre departamentos en Santiago."""
     payload = {"query": "Departamentos en Santiago con precio hasta $500.000"}
     response = client.post("/ask", json=payload)
     assert response.status_code == 200
@@ -25,8 +25,8 @@ def test_query_response_santiago():
     assert data["confidence"] in ["high", "medium", "low"], "Confidence debe ser 'high', 'medium' o 'low'"
     assert any("Santiago" in data["answer"] or url.endswith("santiago") for url in data["urls"]), "La respuesta debe mencionar propiedades en Santiago"
 
+#Prueba que el endpoint /ask responda correctamente a una consulta en español sobre departamentos en Santiago.
 def test_query_response_santiago():
-    """Prueba que el endpoint /ask responda correctamente a una consulta en español sobre departamentos en Santiago."""
     payload = {"query": "¿Qué departamentos de 2 dormitorios hay en Santiago bajo $500.000?"}
     response = client.post("/ask", json=payload)
     assert response.status_code == 200
@@ -48,8 +48,8 @@ def test_query_response_santiago():
     assert any("Santiago" in data["answer"] or url.endswith("santiago") for url in data["urls"]), "La respuesta debe mencionar propiedades en Santiago"
     assert "2 dormitorios" in data["answer"] or "2 bedroom" in data["answer"], "La respuesta debe mencionar 2 dormitorios"
 
+# Prueba que el endpoint /ask responda correctamente a una consulta en inglés.
 def test_query_response_english():
-    """Prueba que el endpoint /ask responda correctamente a una consulta en inglés."""
     payload = {"query": "What 2-bedroom apartments are available in Santiago under $500.000?"}
     response = client.post("/ask", json=payload)
     assert response.status_code == 200

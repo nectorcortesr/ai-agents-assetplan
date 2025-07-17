@@ -4,8 +4,8 @@ import re
 from glob import glob
 from datetime import datetime
 
+# Prueba que el scraper extraiga al menos 50 propiedades.
 def test_scraper_minimum_properties():
-    """Prueba que el scraper extraiga al menos 50 propiedades."""
     json_files = glob("data/assetplan_properties_*.json")
     assert json_files, "No se encontró ningún archivo JSON en la carpeta 'data/'"
     def extract_dt(f: str):
