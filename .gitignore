@@ -1,59 +1,56 @@
-# Entorno virtual
+# Entornos virtuales
 .venv/
 venv/
 env/
 ENV/
-.env
 
-# Archivos de Python compilados
+# Variables de entorno y configuraciones locales
+.env
+.env.*
+
+# Archivos de Python compilados y caches
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Cachés y archivos temporales de herramientas y tests
+*.cache/
+.mypy_cache/
+.pytest_cache/
+.ipynb_checkpoints/
 
 # Logs y bases de datos temporales
 *.log
 *.sqlite
 *.db
-
-# Cachés y archivos temporales
-*.cache/
-*.mypy_cache/
-*.pytest_cache/
-*.ipynb_checkpoints/
+data/
 
 # Archivos de sistema
 .DS_Store
 Thumbs.db
 
-# Archivos de Playwright descargados
+# Archivos y carpetas de herramientas específicas
 .playwright/
+chroma_db/
 
-# Directorios de dependencias y configuraciones locales
+# Directorios y archivos de dependencias y configuraciones locales
 node_modules/
 .vscode/
 .idea/
-
-# Archivos de configuración de sistema y IDE
-*.env
-.env.*
-
-# Archivos de ChromaDB
-chroma_db/
 
 # Archivos de build o distribución
 build/
 dist/
 *.egg-info/
 
-# Archivos de Docker
+# Archivos de Docker locales y overrides
 docker-compose.override.yml
-*.dockerignore
 
 # Archivos de Terraform
 *.tfstate
 *.tfstate.*
 .terraform/
 
-# Otros
+# Archivos swap, backup y temporales
 *.bak
 *.swp
