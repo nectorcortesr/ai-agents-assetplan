@@ -25,6 +25,22 @@ services:
       - scraper
     restart: unless-stopped
 
+  ui:
+    build: .
+    image: assetplan-agent
+    container_name: assetplan-ui
+    ports:
+      - "8501:8501"
+    command: streamlit run ui/app.py --server.port 8501 --server.address 0.0.0.0
+    environment:
+      - PYTHONPATH=/app
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
 networks:
   default:
     driver: bridge

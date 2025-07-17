@@ -116,7 +116,7 @@ def save_changes(changes: List[Dict], filename_base: str = "data/changes") -> st
     return filename
 
 # --- Logica del scraper---
-def scrape_assetplan(min_props: int = 1, max_pages: int = 1) -> List[PropertyListing]:
+def scrape_assetplan(min_props: int = 50, max_pages: int = 50) -> List[PropertyListing]:
     results: List[PropertyListing] = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -171,8 +171,8 @@ def save_to_json(listings: List[PropertyListing], filename_base: str = "data/ass
 # --- CLI ---
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Assetplan scraper")
-    parser.add_argument('--min', type=int, default=1, help='Minimum properties')
-    parser.add_argument('--max', type=int, default=1, help='Max pages')
+    parser.add_argument('--min', type=int, default=50, help='Minimum properties')
+    parser.add_argument('--max', type=int, default=50, help='Max pages')
     args = parser.parse_args()
     listings = scrape_assetplan(min_props=args.min, max_pages=args.max)
     old_json = get_latest_json_file()

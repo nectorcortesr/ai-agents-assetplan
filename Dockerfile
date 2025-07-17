@@ -49,6 +49,7 @@ RUN playwright install
 
 # Exponer puerto de la API
 EXPOSE 8000
+EXPOSE 8501
 
 # Comando por defecto para iniciar la API
 CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

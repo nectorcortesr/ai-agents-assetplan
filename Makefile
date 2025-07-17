@@ -5,7 +5,7 @@ PYTHONPATH := $(PYTHONPATH):$(shell pwd)
 export PYTHONPATH
 
 # Reglas
-.PHONY: install scrape run test tests clean
+.PHONY: install scrape run test tests clean ui
 
 # 1) Instalar dependencias usando pyproject.toml (asumiendo entorno ya creado y activado)
 install:
@@ -23,19 +23,24 @@ run:
 	@echo "🚀  Iniciando API local..."
 	@uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 
-# 4) Probar endpoint /ask (Arranque make apitest en otra terminal cuando tenga make run ejecutandose)
+# 4) Iniciar Streamlit interfaz localmente
+ui:
+	@echo "🎨 Iniciando interfaz Streamlit..."
+	@streamlit run ui/app.py --server.port 8501
+
+# 5) Probar endpoint /ask (Arranque make apitest en otra terminal cuando tenga make run ejecutandose)
 apitest:
 	@echo "🔍  Probando endpoint /ask..."
 	@curl -s -X POST http://127.0.0.1:8000/ask \
 	    -H "Content-Type: application/json" \
 	    -d '{"query":"Departamentos en Santiago con precio hasta $500.000"}' | jq .
 
-# 5) Ejecutar suite de tests automáticos con pytest
+# 6) Ejecutar suite de tests automáticos con pytest
 tests:
 	@echo "🧪 Ejecutando tests..."
 	@pytest --maxfail=1 --disable-warnings -q
 
-# 6) Limpiar entorno local
+# 7) Limpiar entorno local
 clean:
 	@echo "🧹 Limpiando entorno local..."
 	rm -rf .pytest_cache dist build __pycache__

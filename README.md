@@ -44,6 +44,8 @@ assetplan-agent/
 │   ├── test_api.py
 │   ├── test_rag.py
 │   └── test_scraper.py
+├── ui/                        # Chat Interfaz gŕafica
+│   └── app.py
 ├── data/                      # Archivos JSON generados por el scraper
 ├── Dockerfile                 # Imagen Docker para la API y Streamlit
 ├── docker-compose.yml         # Orquestación de servicios con Docker Compose
@@ -105,10 +107,13 @@ make scrape
 # 4. Inicia la API
 make run
 
-# 5. (En otra terminal) Prueba una consulta
+# 5. Inicia la Interfaz grafica
+make ui
+
+# 6. (En otra terminal) Prueba una consulta
 make apitest
 
-# 6. Limpiar entorno local
+# 7. Limpiar entorno local
 make clean
 ```
 
@@ -148,6 +153,25 @@ Haz clic en "Execute" y espera la respuesta del agente, que incluirá:
 - Enlaces (URLs) a propiedades relevantes.
 
 También puedes consumir el endpoint con herramientas como curl, Postman o Insomnia.
+
+---
+
+## Uso de la Interfaz de usuario con Streamlit (Opcional)
+
+Además de la CLI y la API, puedes interactuar con el agente a través de una interfaz web basada en Streamlit.
+
+### Prerrequisitos
+- Asegúrate de que la API esté ejecutándose (`make run` o `docker compose up api`).
+- Tener las dependencias instaladas (`make install` o `docker compose build`).
+
+### Iniciar la interfaz
+```bash
+make ui
+```
+ó
+```bash
+docker compose up ui
+```
 
 ---
 
