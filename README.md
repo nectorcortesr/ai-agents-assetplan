@@ -162,7 +162,7 @@ make tests
 
 ## Diagrama 
 
-
+<img width="734" height="639" alt="imagen" src="https://github.com/user-attachments/assets/11021ef6-d798-4a54-9ea6-78dba2fe642d" />
 
 ---
 
