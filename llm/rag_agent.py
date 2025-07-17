@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 class OpenAILLM(ChatOpenAI):
-    def __init__(self, model_name: str = "gpt-3.5-turbo", temperature: float = 0.7, **kwargs):
+    def __init__(self, model_name: str = "gpt-4o", temperature: float = 0.7, **kwargs):
         super().__init__(
             model_name=model_name,
             temperature=temperature,
@@ -112,9 +112,11 @@ class RAGAgent:
         # 4) Construye el prompt
         prompt = (
             "Responde a la siguiente pregunta basándote exclusivamente en las propiedades listadas más abajo. "
+            "Si hay al menos 3 propiedades relevantes, incluye al menos 3. Si hay menos, responde solo con las que haya disponibles. "
             "Por cada propiedad que menciones, incluye el link (URL) original al final del párrafo. "
             f"Pregunta: {query}\n\nPropiedades disponibles:\n\n{context}"
         )
+
         # 5) Llamada al LLM
         llm = OpenAILLM()
         response = llm.invoke(prompt)

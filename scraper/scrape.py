@@ -1,3 +1,4 @@
+import os
 import json
 import time
 import logging
@@ -122,6 +123,10 @@ def scrape_assetplan(min_props: int = 50, max_pages: int = 50) -> List[PropertyL
 def save_to_json(listings: List[PropertyListing], filename_base: str = "data/assetplan_properties") -> str:
     ts = time.strftime("%Y%m%d_%H%M%S")
     filename = f"{filename_base}_{ts}.json"
+    
+    # Crear directorio si no existe
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+
     with open(filename, 'w', encoding='utf-8') as f:
         json.dump([l.model_dump() for l in listings], f, ensure_ascii=False, indent=2)
     logger.info(f"Saved {len(listings)} listings to {filename}")
