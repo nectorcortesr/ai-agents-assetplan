@@ -1,29 +1,33 @@
-import json
 import os
 import logging
-import re
-
-from typing import List, Dict, Any
 from glob import glob
-from datetime import datetime
+from typing import List, Dict, Any
 
-from sentence_transformers import SentenceTransformer
+import fitz  # PyMuPDF
+import pandas as pd
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chat_models import ChatOpenAI
+from sentence_transformers import SentenceTransformer
 from langdetect import detect
+from dotenv import load_dotenv
 
 from vectorStorage.chromadb import ChromaDBStore
-
-from dotenv import load_dotenv
 
 # Carga las variables de entorno (OPENAI_API_KEY, etc.)
 load_dotenv()
 
 # Configuración de logging
+debug_level = logging.INFO
+logging.basicConfig(format="%(asctime)s %(levelname)s %(message)s", level=debug_level)
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 class OpenAILLM(ChatOpenAI):
-    def __init__(self, model_name: str = "gpt-4o", temperature: float = 0.7, **kwargs):
+    def __init__(
+        self,
+        model_name: str = "gpt-4o",
+        temperature: float = 0.7,
+        **kwargs
+    ):
         super().__init__(
             model_name=model_name,
             temperature=temperature,
@@ -32,144 +36,164 @@ class OpenAILLM(ChatOpenAI):
         )
 
 class RAGAgent:
-    def __init__(self, db_path: str = "./chroma_db", json_file: str = None):
-        self.db_path = db_path
-        self.vector_store = ChromaDBStore(collection_name="property_listings", db_path=db_path)
-        self.embedder = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
-        self.json_file = json_file or self._get_latest_json_file()
-        self.properties = self._load_json_properties()
+    def __init__(
+        self,
+        db_path: str = "./chroma_db",
+        pdf_dir: str = "data/pdfs",
+        excel_dir: str = None,
+        chunk_size: int = 500,
+        chunk_overlap: int = 50,
+    ):
+        """
+        Inicializa el agente RAG construyendo o cargando la base de datos vectorial
+        y partiendo cada documento en 'chunks'.
+        """
+        self.vector_store = ChromaDBStore(
+            collection_name="pdf_excel_collection",
+            db_path=db_path
+        )
+        self.embedder = SentenceTransformer(
+            "paraphrase-multilingual-MiniLM-L12-v2"
+        )
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap
+        )
+        # Carga de documentos
+        pdf_docs, pdf_metas, pdf_ids = self._load_pdfs(pdf_dir)
+        if excel_dir:
+            excel_docs, excel_metas, excel_ids = self._load_excels(excel_dir)
+        else:
+            excel_docs, excel_metas, excel_ids = [], [], []
+        self.documents = pdf_docs + excel_docs
+        self.metadatas = pdf_metas + excel_metas
+        self.ids = pdf_ids + excel_ids
 
-    def _get_latest_json_file(self) -> str:
-        """Encuentra el JSON más reciente en data/ con timestamp en el nombre."""
-        json_files = glob("data/assetplan_properties_*.json")
-        if not json_files:
-            raise FileNotFoundError("No se encontró ningún archivo JSON en la carpeta 'data/'")
-        def extract_dt(f: str):
-            m = re.search(r'(\d{8}_\d{6})', f)
-            return datetime.strptime(m.group(1), "%Y%m%d_%H%M%S") if m else datetime.min
-        latest = max(json_files, key=extract_dt)
-        logger.info(f"Usando el archivo más reciente: {latest}")
-        return latest
+    def _extract_text_from_pdf(self, pdf_path: str) -> str:
+        doc = fitz.open(pdf_path)
+        return "".join(page.get_text() for page in doc)
 
-    def _load_json_properties(self) -> List[Dict[str, Any]]:
-        """Carga el contenido del JSON en memoria."""
-        if not os.path.exists(self.json_file):
-            logger.error(f"JSON no encontrado: {self.json_file}")
-            return []
-        with open(self.json_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        logger.info(f"{len(data)} propiedades cargadas desde {self.json_file}")
-        return data
-
-    def _create_document(self, prop: Dict[str, Any]) -> str:
-        """Convierte un diccionario de propiedad en un string para embedding."""
-        parts = [
-            f"Title: {prop.get('title','')}",
-            f"Location: {prop.get('location','')}"
-        ]
-        for typ in prop.get('typologies', []):
-            segment = (
-                f"{typ.get('bedrooms','')} | {typ.get('bathrooms','')} | "
-                f"{typ.get('size_range','')} | {typ.get('price_range','')} | "
-                f"Disponibles: {typ.get('available','')}"
-            )
-            promos = typ.get('promotions', [])
-            if promos:
-                segment += " | Promociones: " + ", ".join(promos)
-            parts.append(segment)
-        if prop.get('url'):
-            parts.append(f"Link: {prop['url']}")
-        return "\n".join(parts)
-
-    def load_properties(self):
-        """Indexa todas las propiedades en ChromaDB."""
+    def _load_pdfs(self, pdf_dir: str):
         docs, metas, ids = [], [], []
-        for prop in self.properties:
-            doc = self._create_document(prop)
-            docs.append(doc)
-            metas.append({
-                "id": prop.get("id"),
-                "title": prop.get("title"),
-                "location": prop.get("location"),
-                "url": prop.get("url")
-            })
-            ids.append(str(prop.get("id")))
-        if docs:
-            embeddings = self.embedder.encode(docs).tolist()
-            self.vector_store.add_documents(docs, embeddings, metas, ids)
-            logger.info(f"{len(docs)} propiedades indexadas")
+        paths = glob(os.path.join(pdf_dir, "*.pdf"))
+        if not paths:
+            logger.warning(f"No se encontraron PDF en {pdf_dir}")
+        for path in paths:
+            filename = os.path.basename(path)
+            text = self._extract_text_from_pdf(path)
+            chunks = self.text_splitter.split_text(text)
+            for idx, chunk in enumerate(chunks):
+                docs.append(chunk)
+                metas.append({"source": filename, "chunk_index": idx})
+                ids.append(f"{filename}_chunk{idx}")
+        logger.info(f"{len(docs)} chunks extraídos de {len(paths)} PDFs.")
+        return docs, metas, ids
 
-    def search_and_generate(self, query: str, n: int = 5) -> Dict:
-        # 1) Detectar idioma de la consulta
+    def _load_excel(self, excel_path: str) -> List[str]:
+        df_dict = pd.read_excel(excel_path, sheet_name=None)
+        rows = []
+        for sheet, df in df_dict.items():
+            for _, row in df.iterrows():
+                rows.append(" | ".join(f"{col}: {row[col]}" for col in df.columns))
+        return rows
+
+    def _load_excels(self, excel_dir: str):
+        docs, metas, ids = [], [], []
+        paths = glob(os.path.join(excel_dir, "*.xlsx"))
+        if not paths:
+            logger.warning(f"No se encontraron Excel en {excel_dir}")
+        for path in paths:
+            filename = os.path.basename(path)
+            for row_idx, text in enumerate(self._load_excel(path)):
+                chunks = self.text_splitter.split_text(text)
+                for chunk_idx, chunk in enumerate(chunks):
+                    docs.append(chunk)
+                    metas.append({
+                        "source": filename,
+                        "row_index": row_idx,
+                        "chunk_index": chunk_idx
+                    })
+                    ids.append(f"{filename}_row{row_idx}_chunk{chunk_idx}")
+        logger.info(f"{len(docs)} chunks extraídos de {len(paths)} Excels.")
+        return docs, metas, ids
+
+    def load_into_vectorstore(self) -> None:
+        """
+        Indexa todos los documentos cargados en la base vectorial.
+        """
+        if not self.documents:
+            logger.error("No hay documentos para indexar en vector_store.")
+            return
+        embeddings = self.embedder.encode(self.documents).tolist()
+        self.vector_store.add_documents(
+            documents=self.documents,
+            embeddings=embeddings,
+            metadatas=self.metadatas,
+            ids=self.ids
+        )
+        logger.info(f"{len(self.documents)} documentos indexados en ChromaDB.")
+
+    def search_and_generate(self, query: str, history: List[str] = [], n: int = 5) -> Dict[str, Any]:
+        # Detección de idioma
         try:
             lang = detect(query)
         except:
-            lang = "es"  # Fallback a español si la detección falla
-        if lang not in ["es", "en"]:
-            lang = "es"  # Solo soportamos español e inglés
-
-        # 2) Embed la query
+            lang = "es"
+        if lang not in ("es", "en"):
+            lang = "es"
+        # Obtener embedding y consulta a vector_store
         query_emb = self.embedder.encode(query).tolist()
-
-        # 3) Recupera top-n documentos con distancias
         docs, metas, distances, ids = self.vector_store.query(query_emb, n_results=n)
 
-        # 4) Verificar que los documentos provengan de ChromaDB
-        if not docs or not ids:
-            logger.warning("No se recuperaron documentos de ChromaDB para la consulta")
-            return {
-                "answer": "No se encontraron propiedades relevantes para la consulta.",
-                "sources": "chromadb",
-                "confidence": "low",
-                "urls": [],
-                "source_ids": []
-            }
+        # Definir keywords de troubleshooting
+        troubleshooting_keys = [
+            "problema", "falla", "error", "no funciona", "mal funcionamiento",
+            "qué pasa", "que pasa", "qué ocurre", "nivel no ideal", "nivel alto", "nivel bajo",
+            "fuera de rango", "alarma", "alerta", "parado", "detenido",
+            "bloqueo", "obstrucción", "rebalse", "derrame", "pérdida",
+            "cambios de densidad", "cómo solucionar", "qué hacer", "que hacer",
+            "reactor", "estanque", "bomba", "válvula"
+        ]
+        is_trouble = any(k in query.lower() for k in troubleshooting_keys)
 
-        # 5) Calcular confianza
-        avg_distance = sum(distances) / len(distances)
-        confidence_score = 1 - (avg_distance / 2)  # Normalizar a [0, 1]
-        if confidence_score > 0.8:
-            confidence = "high"
-        elif confidence_score > 0.5:
-            confidence = "medium"
+        # Filtrar documentos (Excel rows si troubleshooting)
+        sel_docs, sel_metas = [], []
+        for doc, meta in zip(docs, metas):
+            if is_trouble and 'row_index' in meta:
+                sel_docs.append(doc)
+                sel_metas.append(meta)
+            elif not is_trouble:
+                sel_docs.append(doc)
+                sel_metas.append(meta)
+        if not sel_docs:
+            sel_docs, sel_metas = docs, metas
+
+        # Construir contexto
+        context = []
+        for doc, meta in zip(sel_docs, sel_metas):
+            label = f"[Fila {meta['row_index']}]" if 'row_index' in meta else f"[PDF chunk {meta['chunk_index']}]"
+            context.append(f"{label} {doc}")
+        context_str = "\n".join(context)
+
+        # Construir prompt
+        if is_trouble:
+            system_prompt = (
+                "Eres un asistente experto en troubleshooting industrial. "
+                "Extrae y presenta EXACTAMENTE los campos de la tabla de riesgo "
+                "(Síntomas, Causas, Consecuencias, Salvaguardas, Impacto, Probabilidad, "
+                "Clasificación, Recomendación, Explicación, Responsable) sin resumir."
+            )
         else:
-            confidence = "low"
-
-        # 6) Construye el contexto
-        context = ""
-        urls = []
-        for i, (doc, meta) in enumerate(zip(docs, metas), start=1):
-            context += (
-                f"[{i}] {meta.get('title')} - {meta.get('location')}\n"
-                f"{doc}\nURL: {meta.get('url')}\n\n"
+            system_prompt = (
+                "Eres un asistente experto en operaciones industriales. "
+                "Responde concretamente basándote en la documentación disponible."
             )
-            urls.append(meta.get('url'))
+        prompt = f"{system_prompt}\n\nContexto:\n{context_str}\n\nConsulta: {query}"
 
-        # 7) Construye el prompt según el idioma
-        if lang == "en":
-            prompt = (
-                "Answer the following question based solely on the properties listed below. "
-                "If there are at least 3 relevant properties, include at least 3. If there are fewer, respond with only those available. "
-                "For each property mentioned, include the original link (URL) at the end of the paragraph. "
-                f"Question: {query}\n\nAvailable properties:\n\n{context}"
-            )
-        else:  # lang == "es"
-            prompt = (
-                "Responde a la siguiente pregunta basándote exclusivamente en las propiedades listadas más abajo. "
-                "Si hay al menos 3 propiedades relevantes, incluye al menos 3. Si hay menos, responde solo con las que haya disponibles. "
-                "Por cada propiedad que menciones, incluye el link (URL) original al final del párrafo. "
-                f"Pregunta: {query}\n\nPropiedades disponibles:\n\n{context}"
-            )
-
-        # 8) Llamada al LLM
         llm = OpenAILLM()
-        response = llm.invoke(prompt)
-
-        # 9) Devolver respuesta estructurada
+        resp = llm.invoke(prompt)
         return {
-            "answer": response.content,
+            "answer": resp.content,
             "sources": "chromadb",
-            "confidence": confidence,
-            "urls": urls,
-            "source_ids": ids
+            "source_ids": [m.get('row_index', '') for m in sel_metas]
         }
